@@ -1,5 +1,3 @@
-// navigation/AppNavigator.js
-
 import React from 'react';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { useTheme } from '../contexts/ThemeContext';
@@ -11,7 +9,7 @@ import GameScreen from '../screens/GameScreen';
 import ResultScreen from '../screens/ResultScreen';
 import PunishmentScreen from '../screens/PunishmentScreen';
 import SettingsScreen from '../screens/SettingsScreen';
-import CharadesScreen from '../screens/CharadesScreen'; // <-- 1. استيراد الشاشة الجديدة
+import CharadesScreen from '../screens/CharadesScreen';
 
 import { FONTS } from '../constants/theme';
 
@@ -29,18 +27,38 @@ const AppNavigator = () => {
           elevation: 0,
           shadowOpacity: 0,
         },
-        headerTintColor: '#BDBDBD',
+        headerTintColor: theme.primary,
         headerTitleStyle: {
           ...FONTS.h3,
           color: theme.text,
+          fontWeight: 'bold',
         },
         cardStyle: { backgroundColor: theme.background },
         cardStyleInterpolator: CardStyleInterpolators.forHorizontalIOS,
+        gestureEnabled: true,
       }}
     >
-      <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="PlayerInput" component={PlayerInputScreen} options={{ title: 'إضافة اللاعبين' }} />
-      <Stack.Screen name="GameType" component={GameTypeScreen} options={{ title: 'اختر نوع اللعبة' }} />
+      <Stack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PlayerInput"
+        component={PlayerInputScreen}
+        options={{
+          title: 'إضافة اللاعبين',
+          headerBackTitleVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="GameType"
+        component={GameTypeScreen}
+        options={{
+          title: 'اختر نوع اللعبة',
+          headerBackTitleVisible: false,
+        }}
+      />
       <Stack.Screen
         name="GameScreen"
         component={GameScreen}
@@ -48,21 +66,35 @@ const AppNavigator = () => {
           title: route.params?.gameTitle || 'اللعبة',
           headerLeft: null,
           gestureEnabled: false,
+          headerBackTitleVisible: false,
         })}
       />
-      
-      {/* --- 2. إضافة وتسجيل شاشة اللعبة الجديدة هنا --- */}
-      <Stack.Screen 
-        name="CharadesScreen" 
-        component={CharadesScreen} 
-        options={({ route }) => ({ 
-          title: route.params?.gameTitle || 'تمثيل صامت' 
+      <Stack.Screen
+        name="CharadesScreen"
+        component={CharadesScreen}
+        options={({ route }) => ({
+          title: route.params?.gameTitle || 'تمثيل صامت',
+          headerBackTitleVisible: false,
         })}
       />
-
-      <Stack.Screen name="Result" component={ResultScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Punishment" component={PunishmentScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'الإعدادات' }} />
+      <Stack.Screen
+        name="Result"
+        component={ResultScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Punishment"
+        component={PunishmentScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          title: 'الإعدادات',
+          headerBackTitleVisible: false,
+        }}
+      />
     </Stack.Navigator>
   );
 };

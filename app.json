@@ -1,28 +1,71 @@
 {
   "expo": {
-    "name": "waqt_momtia_expo",
-    "slug": "waqt_momtia_expo",
+    "name": "yallachallenge",
+    "slug": "yallachallenge",
     "version": "1.0.0",
+    "description": "تطبيق ألعاب جماعية عربي ممتع ومتنوع لكل الأعمار",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": false,  "splash": {
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#5C2786"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anasmaaroof.yallachallenge",
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "NSCameraUsageDescription": "يحتاج التطبيق لاستخدام الكاميرا في بعض التحديات الجماعية.",
+        "NSMicrophoneUsageDescription": "يحتاج التطبيق لاستخدام الميكروفون لتشغيل المؤثرات الصوتية والموسيقى.",
+        "NSPhotoLibraryUsageDescription": "يحتاج التطبيق للوصول إلى مكتبة الصور لتخزين لحظات المرح."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#5C2786"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.anasmaaroof.yallachallenge",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "themeColor": "#5C2786",
+      "backgroundColor": "#ffffff",
+      "description": "تطبيق ألعاب جماعية لكل الأصدقاء والعائلة."
+    },
+    "extra": {
+      "appAuthor": "فريق المرح",
+      "github": "https://github.com/anasmaaroof/yallachallenge",
+      "supportEmail": "anasmaaroof@gmail.com",
+      "website": "https://yallachallenge.com"
+    },
+    "plugins": [
+      ["expo-localization"],
+      ["expo-media-library"],
+      ["expo-image-picker"],
+      ["expo-av"]
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "nativeVersion"
+    },
+    "jsEngine": "hermes"
   }
 }

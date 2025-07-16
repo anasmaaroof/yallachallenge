@@ -1,4 +1,4 @@
-// data/questions.js
+// قائمة الأسئلة العامة (General Questions)
 export const generalQuestions = [
   { id: 'gq_1', text: 'ما عاصمة فرنسا؟', options: ['برلين', 'باريس', 'مدريد'], correctAnswer: 'باريس' },
   { id: 'gq_2', text: 'كم عدد قارات العالم؟', options: ['5', '6', '7'], correctAnswer: '7' },
@@ -13,3 +13,64 @@ export const generalQuestions = [
   // ... (تستمر القائمة لتشمل 490 سؤالاً إضافياً)
   { id: 'gq_500', text: 'ما هو اسم العملة المستخدمة في سويسرا؟', options: ['اليورو', 'الدولار', 'الفرنك السويسري'], correctAnswer: 'الفرنك السويسري' }
 ];
+
+// --- دعم التقدم المتسلسل وعدم التكرار حتى انتهاء جميع الأسئلة ---
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const PROGRESS_INDEX_KEY = 'progress_general_questions';
+
+/**
+ * جلب المؤشر الحالي للتقدم المتسلسل
+ */
+export async function getGeneralQuestionsProgressIndex() {
+  try {
+    const value = await AsyncStorage.getItem(PROGRESS_INDEX_KEY);
+    return value !== null ? parseInt(value, 10) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * حفظ المؤشر الحالي
+ */
+export async function setGeneralQuestionsProgressIndex(index) {
+  try {
+    await AsyncStorage.setItem(PROGRESS_INDEX_KEY, index.toString());
+  } catch (e) {}
+}
+
+/**
+ * إعادة المؤشر للبداية
+ */
+export async function resetGeneralQuestionsProgressIndex() {
+  try {
+    await AsyncStorage.setItem(PROGRESS_INDEX_KEY, '0');
+  } catch (e) {}
+}
+
+/**
+ * جلب سؤال عام التالي في التسلسل مع حفظ التقدم وعدم التكرار حتى انتهاء جميع الأسئلة.
+ * إذا انتهت الأسئلة، تبدأ من جديد (دورة جديدة).
+ * استخدم هذه الدالة في شاشة الأسئلة العامة لجلب السؤال التالي باستمرار.
+ */
+export async function getNextGeneralQuestion() {
+  let currentIndex = await getGeneralQuestionsProgressIndex();
+  if (currentIndex >= generalQuestions.length) {
+    // انتهت جميع الأسئلة، أعد للبداية
+    await resetGeneralQuestionsProgressIndex();
+    currentIndex = 0;
+  }
+  const question = generalQuestions[currentIndex];
+  await setGeneralQuestionsProgressIndex(currentIndex + 1);
+  return question;
+}
+
+/**
+ * ملاحظة هامة:
+ * - هذه الطريقة تضمن أن كل سؤال يظهر مرة واحدة فقط في الجولة، وبالتسلسل، ولا يتكرر حتى تنتهي كل الأسئلة.
+ * - عند إغلاق التطبيق والعودة لاحقًا، تبدأ من حيث توقفت.
+ * - عند الانتهاء من جميع الأسئلة، تبدأ دورة جديدة من البداية.
+ * - يمكن تطبيق نفس النظام على العقوبات والتحديات بأن يكون لكل نوع مفتاح خاص به في التخزين.
+ */

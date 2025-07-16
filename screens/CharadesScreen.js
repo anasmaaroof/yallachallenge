@@ -1,90 +1,56 @@
-// screens/CharadesScreen.js
-
-import React, { useState, useContext, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Alert, Animated } from 'react-native';
 import { usePlayers } from '../contexts/PlayersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useSound } from '../contexts/SoundContext';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
+import { getNextCharadesWord, resetCharadesWordsProgressIndex } from '../data/charadesWords';
 
-const shuffleArray = (array) => {
-    let currentIndex = array.length, randomIndex;
-    while (currentIndex !== 0) {
-        randomIndex = Math.floor(Math.random() * currentIndex);
-        currentIndex--;
-        [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
-    }
-    return array;
+const useAnimatedWord = (word) => {
+    const scaleAnim = useRef(new Animated.Value(0.7)).current;
+    useEffect(() => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            friction: 3,
+            useNativeDriver: true,
+        }).start();
+    }, [word]);
+    return scaleAnim;
 };
 
-const USED_WORDS_KEY = '@charades_used_words';
-
-const CharadesScreen = ({ navigation, route }) => {
-    const { words } = route.params;
+const CharadesScreen = ({ navigation }) => {
     const { players: initialPlayers, updatePlayerScore } = usePlayers();
     const { settings } = useSettings();
     const { playSound } = useSound();
 
-    const [players, setPlayers] = useState(initialPlayers.map((p) => ({ ...p, score: p.score || 0 })));
+    const [players, setPlayers] = useState(initialPlayers.map(p => ({ ...p, score: p.score || 0 })));
     const [gameState, setGameState] = useState('loading');
     const [currentWord, setCurrentWord] = useState(null);
     const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
     const [round, setRound] = useState(1);
-    
-    const wordPoolRef = useRef([]);
+    const [showCelebration, setShowCelebration] = useState(false);
 
-    const markWordAsUsed = async (wordId) => {
-        try {
-            const existingUsedWords = await AsyncStorage.getItem(USED_WORDS_KEY);
-            const usedWords = existingUsedWords ? JSON.parse(existingUsedWords) : [];
-            usedWords.push(wordId);
-            await AsyncStorage.setItem(USED_WORDS_KEY, JSON.stringify(usedWords));
-        } catch (e) {
-            console.error("Failed to save used word.", e);
+    // تعليمات اللعبة
+    const [showInstructions, setShowInstructions] = useState(true);
+
+    // جلب الكلمة التالية دون تكرار حتى نهاية جميع الكلمات
+    const getWord = async () => {
+        let nextWord = await getNextCharadesWord();
+        if (!nextWord) {
+            Alert.alert("تهانينا!", "لقد لعبتم كل الكلمات المتاحة. سيتم الآن إعادة تعيين القائمة.");
+            await resetCharadesWordsProgressIndex();
+            nextWord = await getNextCharadesWord();
         }
+        setCurrentWord(nextWord);
     };
 
     useEffect(() => {
         const initializeGame = async () => {
-            try {
-                const usedWordsJson = await AsyncStorage.getItem(USED_WORDS_KEY);
-                const usedWordIds = usedWordsJson ? JSON.parse(usedWordsJson) : [];
-                
-                // نفترض أن كل كلمة الآن هي كائن {id, text}
-                const wordsAsObjects = words.map((word, index) => ({ id: `cw_${index}`, text: word }));
-                let availableWords = wordsAsObjects.filter(w => !usedWordIds.includes(w.id));
-
-                if (availableWords.length === 0) {
-                    Alert.alert("تهانينا!", "لقد لعبتم كل الكلمات المتاحة. سيتم الآن إعادة تعيين القائمة.");
-                    await AsyncStorage.removeItem(USED_WORDS_KEY);
-                    availableWords = [...wordsAsObjects];
-                }
-                
-                wordPoolRef.current = shuffleArray(availableWords);
-                setGameState('ready');
-                getNextWord();
-
-            } catch (e) {
-                console.error("Failed to initialize game.", e);
-                const wordsAsObjects = words.map((word, index) => ({ id: `cw_${index}`, text: word }));
-                wordPoolRef.current = shuffleArray(wordsAsObjects);
-                setGameState('ready');
-            }
+            await getWord();
+            setGameState('ready');
         };
-
         initializeGame();
     }, []);
-    
-    const getNextWord = () => {
-        if (wordPoolRef.current.length === 0) {
-            endGame();
-            return;
-        }
-        const nextWord = wordPoolRef.current.pop();
-        setCurrentWord(nextWord);
-        markWordAsUsed(nextWord.id);
-    };
 
     const handleScoreUpdate = (playerIds, points) => {
         const idsToUpdate = Array.isArray(playerIds) ? playerIds : [playerIds];
@@ -101,23 +67,30 @@ const CharadesScreen = ({ navigation, route }) => {
         });
     };
 
+    // احتفال عند الإجابة الصحيحة
+    const triggerCelebration = () => {
+        setShowCelebration(true);
+        setTimeout(() => setShowCelebration(false), 1200);
+    };
+
     const handleCorrectGuess = (guesserId) => {
         playSound('correct');
+        triggerCelebration();
         handleScoreUpdate([currentPlayer.id, guesserId], 1);
-        setTimeout(nextTurn, 300);
+        setTimeout(nextTurn, 600);
     };
 
     const handleFailedGuess = () => {
         playSound('wrong');
         handleScoreUpdate(currentPlayer.id, -1);
-        setTimeout(nextTurn, 300);
+        setTimeout(nextTurn, 600);
     };
 
     const endGame = () => {
         navigation.replace('Result', { players, gameCategory: 'charades' });
     };
 
-    const nextTurn = () => {
+    const nextTurn = async () => {
         const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
         if (nextPlayerIndex === 0) {
             const nextRound = round + 1;
@@ -129,23 +102,36 @@ const CharadesScreen = ({ navigation, route }) => {
         }
         setCurrentPlayerIndex(nextPlayerIndex);
         setGameState('ready');
-        getNextWord();
+        await getWord();
     };
 
     const currentPlayer = players[currentPlayerIndex];
+    const wordAnim = useAnimatedWord(currentWord?.text);
 
-    if (gameState === 'loading' || !currentPlayer) {
-        return (
-            <View style={styles.centeredView}>
-                <Text style={styles.instructionText}>جاري تحضير اللعبة...</Text>
-            </View>
-        );
-    }
-    
+    const renderRoundBar = () => (
+        <View style={styles.roundBar}>
+            <Text style={styles.roundText}>الجولة <Text style={{ color: COLORS.primary }}>{round}</Text> / {settings.numberOfRounds}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
+                {players.map((p, i) => (
+                    <View key={p.id} style={[styles.playerChip, i === currentPlayerIndex && styles.currentChip]}>
+                        <Text style={[styles.playerChipText, i === currentPlayerIndex && { color: COLORS.primary }]}>{p.name}</Text>
+                        <Text style={[styles.playerChipScore, i === currentPlayerIndex && { color: COLORS.primary }]}>{p.score}</Text>
+                    </View>
+                ))}
+            </ScrollView>
+        </View>
+    );
+
+    const renderCelebration = () => showCelebration && (
+        <View style={styles.celebrationOverlay}>
+            <Text style={styles.celebrationText}>🎉 أحسنت! 🎉</Text>
+        </View>
+    );
+
     const renderReadyScreen = () => (
         <View style={styles.centeredView}>
-            <Text style={styles.titleText}>الجولة {round}</Text>
-            <Text style={styles.playerTurnText}>استعد يا {currentPlayer.name}!</Text>
+            {renderRoundBar()}
+            <Text style={styles.playerTurnText}>استعد يا <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>{currentPlayer.name}</Text>!</Text>
             <Text style={styles.instructionText}>هل أنت جاهز لترى كلمتك وتبدأ التمثيل؟</Text>
             <TouchableOpacity style={styles.primaryButton} onPress={() => { playSound('click'); setGameState('acting'); }}>
                 <Text style={styles.primaryButtonText}>أنا جاهز، اعرض الكلمة</Text>
@@ -155,16 +141,18 @@ const CharadesScreen = ({ navigation, route }) => {
 
     const renderActingScreen = () => (
         <View style={styles.centeredView}>
+            {renderRoundBar()}
             <Text style={styles.titleText}>مثل الكلمة التالية:</Text>
-            <View style={styles.card}>
+            <Animated.View style={[styles.card, { transform: [{ scale: wordAnim }] }]}>
                 <Text style={styles.wordText}>{currentWord?.text}</Text>
-            </View>
+            </Animated.View>
             <TouchableOpacity style={styles.secondaryButton} onPress={() => { playSound('click'); setGameState('guessing'); }}>
                 <Text style={styles.secondaryButtonText}>تم تخمين الكلمة</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.secondaryButton, { backgroundColor: 'transparent', borderColor: COLORS.fail, borderWidth: 2 }]} onPress={handleFailedGuess}>
                 <Text style={[styles.secondaryButtonText, { color: COLORS.fail }]}>لم يتمكن أحد (خصم نقطة)</Text>
             </TouchableOpacity>
+            {renderCelebration()}
         </View>
     );
 
@@ -188,6 +176,37 @@ const CharadesScreen = ({ navigation, route }) => {
         </Modal>
     );
 
+    // تعليمات اللعبة في أول مرة
+    const renderInstructionsModal = () => (
+        <Modal visible={showInstructions} animationType="slide" transparent>
+            <View style={styles.modalContainer}>
+                <View style={styles.instructionsContent}>
+                    <Text style={styles.instructionsTitle}>شرح لعبة التمثيل الصامت 🎭</Text>
+                    <ScrollView>
+                        <Text style={styles.instructionsText}>
+                            - كل جولة، سيظهر اسم لاعب يجب عليه تمثيل الكلمة المعروضة بدون أي كلام أو صوت! {"\n"}
+                            - بقية اللاعبين يحاولون تخمين الكلمة. أول من يخمنها يحصل على نقطة مع الممثل. {"\n"}
+                            - إذا لم يتمكن أحد من التخمين، يخسر اللاعب الممثل نقطة. {"\n"}
+                            - اللعبة فيها عدة جولات، والفائز من يحصل على أكبر عدد من النقاط. {"\n"}
+                            {"\n"}استمتعوا!
+                        </Text>
+                    </ScrollView>
+                    <TouchableOpacity style={styles.instructionsButton} onPress={() => setShowInstructions(false)}>
+                        <Text style={styles.instructionsButtonText}>فهمت، لنبدأ!</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
+    );
+
+    if (gameState === 'loading' || !currentPlayer) {
+        return (
+            <View style={styles.centeredView}>
+                <Text style={styles.instructionText}>جاري تحضير اللعبة...</Text>
+            </View>
+        );
+    }
+
     return (
         <View style={styles.container}>
             {gameState === 'ready' && renderReadyScreen()}
@@ -196,11 +215,11 @@ const CharadesScreen = ({ navigation, route }) => {
             <TouchableOpacity style={styles.endGameButton} onPress={endGame}>
                 <Text style={styles.endGameButtonText}>إنهاء اللعبة الآن</Text>
             </TouchableOpacity>
+            {renderInstructionsModal()}
         </View>
     );
 };
 
-// ... الأنماط styles تبقى كما هي
 const styles = StyleSheet.create({
     container: {
         flex: 1,
@@ -212,11 +231,57 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    roundBar: {
+        width: '98%',
+        backgroundColor: COLORS.surface,
+        borderRadius: SIZES.radius,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        marginBottom: SIZES.base,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.07,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    roundText: {
+        ...FONTS.body,
+        color: COLORS.subtleText,
+        fontWeight: 'bold',
+        marginBottom: 3,
+    },
+    playerChip: {
+        backgroundColor: COLORS.surface,
+        borderRadius: 22,
+        marginRight: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        minWidth: 50,
+        justifyContent: 'space-between',
+    },
+    currentChip: {
+        backgroundColor: COLORS.primaryLight,
+        borderColor: COLORS.primary,
+    },
+    playerChipText: {
+        ...FONTS.body,
+        marginRight: 4,
+    },
+    playerChipScore: {
+        ...FONTS.body,
+        fontWeight: 'bold',
+    },
     titleText: {
         ...FONTS.h2,
         color: COLORS.subtleText,
         position: 'absolute',
         top: SIZES.padding,
+        width: '100%',
+        textAlign: 'center',
     },
     playerTurnText: {
         ...FONTS.h1,
@@ -248,8 +313,9 @@ const styles = StyleSheet.create({
     wordText: {
         ...FONTS.h1,
         fontWeight: 'bold',
-        color: COLORS.text,
+        color: COLORS.primary,
         textAlign: 'center',
+        letterSpacing: 2,
     },
     primaryButton: {
         backgroundColor: COLORS.primary,
@@ -257,12 +323,21 @@ const styles = StyleSheet.create({
         borderRadius: SIZES.radius,
         width: '90%',
         alignItems: 'center',
+        marginTop: SIZES.base,
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 4,
     },
     primaryButtonText: {
         ...FONTS.button,
+        color: COLORS.onPrimary,
+        fontWeight: 'bold',
+        fontSize: SIZES.h3,
     },
     secondaryButton: {
-        backgroundColor: '#2e7d32',
+        backgroundColor: COLORS.success,
         padding: SIZES.padding / 1.5,
         borderRadius: SIZES.radius,
         width: '90%',
@@ -272,15 +347,18 @@ const styles = StyleSheet.create({
     secondaryButtonText: {
         ...FONTS.button,
         fontSize: SIZES.body,
+        color: COLORS.onSuccess,
     },
     endGameButton: {
         padding: SIZES.base,
         alignSelf: 'center',
+        marginBottom: SIZES.base,
     },
     endGameButtonText: {
         ...FONTS.body,
         color: COLORS.subtleText,
         textDecorationLine: 'underline',
+        fontWeight: 'bold',
     },
     modalContainer: {
         flex: 1,
@@ -307,10 +385,81 @@ const styles = StyleSheet.create({
         borderRadius: SIZES.radius,
         marginVertical: SIZES.base,
         alignItems: 'center',
+        shadowColor: COLORS.primary,
+        shadowOpacity: 0.1,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 4,
+        elevation: 2,
     },
     playerVoteButtonText: {
         ...FONTS.button,
-    }
+        color: COLORS.onPrimary,
+        fontWeight: 'bold',
+    },
+    celebrationOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 10,
+    },
+    celebrationText: {
+        ...FONTS.h1,
+        color: COLORS.primary,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        fontSize: SIZES.h1 * 1.2,
+        shadowColor: COLORS.primary,
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+        elevation: 15,
+    },
+    instructionsContent: {
+        backgroundColor: COLORS.surface,
+        borderRadius: SIZES.radius,
+        padding: SIZES.padding,
+        width: '85%',
+        maxHeight: '70%',
+        alignItems: 'center',
+    },
+    instructionsTitle: {
+        ...FONTS.h2,
+        color: COLORS.primary,
+        textAlign: 'center',
+        marginBottom: SIZES.base * 1.5,
+        fontWeight: 'bold',
+    },
+    instructionsText: {
+        ...FONTS.body,
+        color: COLORS.text,
+        fontSize: SIZES.h3,
+        textAlign: 'center',
+        marginBottom: SIZES.base,
+        lineHeight: SIZES.h3 * 1.5,
+    },
+    instructionsButton: {
+        backgroundColor: COLORS.primary,
+        padding: SIZES.padding,
+        borderRadius: SIZES.radius,
+        width: '90%',
+        alignItems: 'center',
+        marginTop: SIZES.base,
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 5,
+        elevation: 4,
+    },
+    instructionsButtonText: {
+        ...FONTS.button,
+        color: COLORS.onPrimary,
+        fontWeight: 'bold',
+        fontSize: SIZES.h3,
+    },
 });
 
 export default CharadesScreen;

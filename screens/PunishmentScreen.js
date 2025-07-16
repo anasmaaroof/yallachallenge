@@ -1,140 +1,125 @@
-// screens/PunishmentScreen.js
-
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert, ActivityIndicator } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { funPenalties } from '../data/penalties';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert, ActivityIndicator, Animated } from 'react-native';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
+import { getNextFunPenalty, resetFunPenaltiesProgressIndex } from '../data/penalties';
 
 const { height } = Dimensions.get('window');
-const USED_PENALTIES_KEY = '@used_penalties';
-
-// دالة مساعدة لخلط المصفوفة
-const shuffleArray = (array) => {
-  const newArr = [...array];
-  for (let i = newArr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
-  }
-  return newArr;
-};
-
 
 const PunishmentScreen = ({ navigation, route }) => {
   const { loserName } = route.params;
   const [currentPenalty, setCurrentPenalty] = useState(null);
-  const [penaltyPool, setPenaltyPool] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const cardAnim = useRef(new Animated.Value(0)).current;
 
-  // --- دالة جديدة ومحسّنة لتحضير العقوبات ---
-  const preparePenalties = async () => {
+  // دالة لتحريك البطاقة عند عرض عقوبة جديدة
+  const triggerCardAnimation = () => {
+    cardAnim.setValue(0);
+    Animated.spring(cardAnim, {
+      toValue: 1,
+      friction: 4,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // دالة اهتزاز عند عدم وجود عقوبة
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 4, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
+
+  // جلب عقوبة جديدة غير متكررة
+  const fetchNextPenalty = async (showAlertOnReset = true) => {
     setIsLoading(true);
     try {
-      const usedPenaltiesJson = await AsyncStorage.getItem(USED_PENALTIES_KEY);
-      const usedPenaltyIds = usedPenaltiesJson ? JSON.parse(usedPenaltiesJson) : [];
-      
-      let availablePenalties = funPenalties.filter(p => !usedPenaltyIds.includes(p.id));
-
-      if (availablePenalties.length === 0 && funPenalties.length > 0) {
-        Alert.alert("تهانينا!", "لقد تم تنفيذ كل العقوبات المتاحة. سيتم إعادة تعيين القائمة.");
-        await AsyncStorage.removeItem(USED_PENALTIES_KEY);
-        availablePenalties = [...funPenalties];
-      }
-      
-      const shuffledPool = shuffleArray(availablePenalties);
-      setPenaltyPool(shuffledPool);
-      // بعد تحضير القائمة، نعرض أول عقوبة منها
-      showNextPenalty(shuffledPool);
-
-    } catch (e) {
-      console.error("Failed to initialize penalties.", e);
-      setPenaltyPool(shuffleArray(funPenalties)); // Fallback in case of error
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  const markPenaltyAsUsed = async (penaltyId) => {
-    try {
-        const existingUsed = await AsyncStorage.getItem(USED_PENALTIES_KEY);
-        const usedIds = existingUsed ? JSON.parse(existingUsed) : [];
-        if (!usedIds.includes(penaltyId)) {
-            usedIds.push(penaltyId);
-            await AsyncStorage.setItem(USED_PENALTIES_KEY, JSON.stringify(usedIds));
+      let penalty = await getNextFunPenalty();
+      // إذا انتهت العقوبات (الدالة ترجع null أو undefined)
+      if (!penalty) {
+        if (showAlertOnReset) {
+          Alert.alert("تهانينا!", "لقد تم تنفيذ كل العقوبات المتاحة. سيتم الآن إعادة تعيين القائمة.");
         }
+        await resetFunPenaltiesProgressIndex();
+        penalty = await getNextFunPenalty();
+      }
+      setCurrentPenalty(penalty);
+      triggerCardAnimation();
     } catch (e) {
-        console.error("Failed to save used penalty.", e);
-    }
-  };
-
-  // --- دالة جديدة ومحسّنة لعرض العقوبة التالية ---
-  const showNextPenalty = (pool) => {
-    // نستخدم الـ pool الحالي أو الذي في الـ state
-    const currentPool = pool || penaltyPool;
-
-    if (currentPool.length > 0) {
-      const newPool = [...currentPool]; // ننسخ المصفوفة لضمان عدم التعديل المباشر
-      const nextPenalty = newPool.pop(); // نسحب العقوبة التالية
-      
-      setCurrentPenalty(nextPenalty); // نعرضها
-      markPenaltyAsUsed(nextPenalty.id); // نحفظها في الذاكرة
-      setPenaltyPool(newPool); // نُحدّث القائمة المتبقية
-    } else {
-      // إذا انتهت كل العقوبات، نحضّر القائمة من جديد
-      preparePenalties();
+      setCurrentPenalty({ text: 'لم يتم العثور على عقوبات متاحة.' });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    preparePenalties();
+    fetchNextPenalty(false);
   }, []);
 
   if (isLoading) {
     return (
-        <View style={styles.container}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={styles.loadingText}>جاري تحضير عقوبة جديدة...</Text>
-        </View>
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>جاري تحضير عقوبة جديدة...</Text>
+      </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      {/* عنوان وتوضيح الخاسر */}
       <View style={styles.titleContainer}>
-        <Text style={styles.title}>حان وقت العقوبة!</Text>
-        <Text style={styles.loserName}>{loserName}</Text>
-      </View>
-
-      <View style={styles.penaltyCard}>
-        <Text style={styles.penaltyText}>
-          {currentPenalty ? currentPenalty.text : 'لا توجد عقوبات متاحة.'}
+        <Text style={styles.title}>🎯 حان وقت العقوبة!</Text>
+        <Text style={styles.loserName}>
+          <Text style={{ fontSize: SIZES.h1 * 1.1 }}>😅 </Text>
+          {loserName}
         </Text>
       </View>
 
+      {/* بطاقة العقوبة مع مؤثر بصري */}
+      <Animated.View
+        style={[
+          styles.penaltyCard,
+          {
+            transform: [
+              { scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1] }) },
+              { translateX: shakeAnim },
+            ],
+            shadowOpacity: 0.17,
+          }
+        ]}
+      >
+        <Text style={styles.penaltyText}>
+          {currentPenalty ? currentPenalty.text : 'لا توجد عقوبات متاحة.'}
+        </Text>
+      </Animated.View>
+
+      {/* الأزرار */}
       <View style={styles.buttonsContainer}>
         <TouchableOpacity
           style={styles.rerollButton}
-          onPress={() => showNextPenalty()} // الزر الآن يستدعي الدالة المحسّنة
+          onPress={() => fetchNextPenalty()}
         >
-          <Text style={styles.rerollButtonText}>عقوبة أخرى</Text>
+          <Text style={styles.rerollButtonText}>🔄 عقوبة أخرى</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.doneButton}
           onPress={() => navigation.popToTop()}
         >
-          <Text style={styles.doneButtonText}>العب مرة أخرى</Text>
+          <Text style={styles.doneButtonText}>🏠 العودة للرئيسية</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center', // تم التعديل للتوسيط أثناء التحميل
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.background,
     padding: SIZES.padding,
@@ -151,16 +136,20 @@ const styles = StyleSheet.create({
   },
   title: {
     ...FONTS.h1,
-    color: COLORS.text,
+    color: COLORS.primary,
     textAlign: 'center',
+    marginBottom: SIZES.base,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   loserName: {
     ...FONTS.h1,
-    fontSize: SIZES.h1 * 1.2,
-    color: COLORS.secondary,
+    fontSize: SIZES.h1 * 1.15,
+    color: COLORS.fail,
     fontWeight: 'bold',
     marginTop: SIZES.base,
     textAlign: 'center',
+    letterSpacing: 1,
   },
   penaltyCard: {
     width: '100%',
@@ -170,20 +159,23 @@ const styles = StyleSheet.create({
     padding: SIZES.padding,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
+    shadowColor: COLORS.secondary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.17,
+    shadowRadius: 12,
+    elevation: 10,
     borderWidth: 2,
-    borderColor: COLORS.secondary,
-    flex: 2, // يأخذ مساحة أكبر
+    borderColor: COLORS.primary,
+    flex: 2,
+    marginVertical: SIZES.base * 2,
   },
   penaltyText: {
     ...FONTS.h2,
     color: COLORS.text,
     textAlign: 'center',
     lineHeight: SIZES.h2 * 1.5,
+    fontWeight: 'bold',
+    letterSpacing: 0.7,
   },
   buttonsContainer: {
     width: '100%',
@@ -200,10 +192,14 @@ const styles = StyleSheet.create({
     borderColor: COLORS.secondary,
     width: '90%',
     alignItems: 'center',
+    marginBottom: SIZES.base,
   },
   rerollButtonText: {
     ...FONTS.h3,
     color: COLORS.secondary,
+    fontWeight: 'bold',
+    fontSize: SIZES.h2,
+    letterSpacing: 1,
   },
   doneButton: {
     backgroundColor: COLORS.primary,
@@ -212,10 +208,18 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radius,
     width: '90%',
     alignItems: 'center',
-    marginTop: SIZES.padding / 2,
+    marginTop: SIZES.base / 2,
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.17,
+    shadowRadius: 6,
+    elevation: 2,
   },
   doneButtonText: {
     ...FONTS.button,
+    fontWeight: 'bold',
+    color: COLORS.onPrimary,
+    fontSize: SIZES.h3,
+    letterSpacing: 1,
   },
 });
 

@@ -1,5 +1,3 @@
-// screens/PlayerInputScreen.js
-
 import React, { useState } from 'react';
 import {
   View,
@@ -10,21 +8,34 @@ import {
   FlatList,
   Alert,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Animated
 } from 'react-native';
 
 import { usePlayers } from '../contexts/PlayersContext';
-import { COLORS, FONTS, SIZES } from '../constants/theme'; // استيراد الثيم
+import { COLORS, FONTS, SIZES } from '../constants/theme';
 
 const PlayerInputScreen = ({ navigation }) => {
   const { players, addPlayer, removePlayer, resetPlayerScores } = usePlayers();
   const [playerName, setPlayerName] = useState('');
+  const [shakeAnim] = useState(new Animated.Value(0));
+
+  // مؤثر بصري عند محاولة إضافة اسم فارغ أو مكرر
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 4, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
 
   const handleAddPlayer = () => {
-    const result = addPlayer(playerName);
+    const result = addPlayer(playerName.trim());
     if (result.success) {
       setPlayerName('');
     } else {
+      triggerShake();
       Alert.alert('خطأ', result.message);
     }
   };
@@ -42,6 +53,7 @@ const PlayerInputScreen = ({ navigation }) => {
 
   const startGame = () => {
     if (players.length < 2) {
+      triggerShake();
       Alert.alert('عدد اللاعبين غير كافٍ', 'يجب أن يكون هناك لاعبان على الأقل لبدء اللعبة.');
       return;
     }
@@ -55,8 +67,13 @@ const PlayerInputScreen = ({ navigation }) => {
       style={styles.container}
     >
       <View style={styles.innerContainer}>
-        {/* --- قسم الإدخال --- */}
-        <View style={styles.inputContainer}>
+        {/* --- عنوان الصفحة مع أيقونة لاعبين --- */}
+        <Text style={styles.title}>
+          <Text style={{ fontSize: SIZES.h1 * 1.5 }}>👥</Text> إضافة اللاعبين
+        </Text>
+
+        {/* --- قسم الإدخال مع مؤثر بصري --- */}
+        <Animated.View style={[styles.inputContainer, { transform: [{ translateX: shakeAnim }] }]}>
           <TextInput
             style={styles.input}
             placeholder="أدخل اسم اللاعب"
@@ -65,18 +82,25 @@ const PlayerInputScreen = ({ navigation }) => {
             onChangeText={setPlayerName}
             maxLength={20}
             onSubmitEditing={handleAddPlayer}
+            autoCorrect={false}
+            autoCapitalize="none"
           />
-          <TouchableOpacity style={styles.addButton} onPress={handleAddPlayer}>
+          <TouchableOpacity
+            style={[styles.addButton, playerName.trim() === '' && styles.addButtonDisabled]}
+            onPress={handleAddPlayer}
+            disabled={playerName.trim() === ''}
+            activeOpacity={playerName.trim() === '' ? 1 : 0.7}
+          >
             <Text style={styles.addButtonText}>+</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
         {/* --- قائمة اللاعبين --- */}
         <FlatList
           data={players}
           keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.playerItem}>
+          renderItem={({ item, index }) => (
+            <View style={[styles.playerItem, index % 2 === 0 ? styles.playerItemEven : styles.playerItemOdd]}>
               <Text style={styles.playerName}>{item.name}</Text>
               <TouchableOpacity onPress={() => handleRemovePlayer(item.id)}>
                 <Text style={styles.removeButtonText}>✕</Text>
@@ -84,7 +108,9 @@ const PlayerInputScreen = ({ navigation }) => {
             </View>
           )}
           style={styles.playerList}
-          ListEmptyComponent={<Text style={styles.listEmptyText}>لا يوجد لاعبون بعد.</Text>}
+          ListEmptyComponent={
+            <Text style={styles.listEmptyText}>لا يوجد لاعبون بعد، أضف أول لاعب للبدء.</Text>
+          }
         />
 
         {/* --- زر بدء اللعبة --- */}
@@ -93,7 +119,9 @@ const PlayerInputScreen = ({ navigation }) => {
           onPress={startGame}
           disabled={players.length < 2}
         >
-          <Text style={styles.startButtonText}>التالي</Text>
+          <Text style={styles.startButtonText}>
+            {players.length < 2 ? "أضف لاعبين أولاً" : "التالي"}
+          </Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -108,6 +136,15 @@ const styles = StyleSheet.create({
   innerContainer: {
     flex: 1,
     padding: SIZES.padding,
+    justifyContent: 'flex-start',
+  },
+  title: {
+    ...FONTS.h1,
+    color: COLORS.primary,
+    textAlign: 'center',
+    marginVertical: SIZES.base * 2,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -135,14 +172,25 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radius,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  addButtonDisabled: {
+    backgroundColor: COLORS.subtleText,
   },
   addButtonText: {
     ...FONTS.h1,
     color: COLORS.surface,
-    marginTop: -4 // لضبط علامة + في المنتصف
+    marginTop: -4,
+    fontWeight: 'bold',
+    fontSize: SIZES.h2,
   },
   playerList: {
     flex: 1,
+    marginTop: SIZES.base,
+    marginBottom: SIZES.base * 2,
   },
   playerItem: {
     flexDirection: 'row',
@@ -158,14 +206,23 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  playerItemEven: {
+    backgroundColor: COLORS.surface,
+  },
+  playerItemOdd: {
+    backgroundColor: COLORS.surface + 'CC',
+  },
   playerName: {
     ...FONTS.h3,
     color: COLORS.text,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   removeButtonText: {
     ...FONTS.body,
-    color: COLORS.secondary,
+    color: COLORS.fail,
     fontWeight: 'bold',
+    fontSize: SIZES.h2,
   },
   listEmptyText: {
     ...FONTS.body,
@@ -179,13 +236,22 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radius * 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: SIZES.base,
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.13,
+    shadowRadius: 5,
+    elevation: 2,
+    marginBottom: SIZES.base * 2,
   },
   startButtonDisabled: {
-    backgroundColor: COLORS.subtleText, // لون مختلف عند تعطيل الزر
+    backgroundColor: COLORS.subtleText,
+    shadowColor: COLORS.subtleText,
   },
   startButtonText: {
     ...FONTS.button,
+    fontWeight: 'bold',
+    color: COLORS.onPrimary,
+    fontSize: SIZES.h3,
+    letterSpacing: 1,
   },
 });
 

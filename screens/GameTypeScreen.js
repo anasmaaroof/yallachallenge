@@ -1,68 +1,77 @@
-// screens/GameTypeScreen.js
-
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
 import { usePlayers } from '../contexts/PlayersContext';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
 
-// --- استيراد بيانات الألعاب ---
-import { generalQuestions } from '../data/questions';
-import { mostLikelyQuestions } from '../data/mostLikelyQuestions';
-import { confessionQuestions } from '../data/confessionQuestions';
-import { challengeTasks } from '../data/challengeQuestions';
-import { challengeMasterCards } from '../data/challengeMasterCards';
-import { charadesWords } from '../data/charadesWords';
-// تم حذف استيراد neverHaveIEverQuestions
+// استيراد دوال جلب الأسئلة غير المتكررة
+import { getNextGeneralQuestion } from '../data/questions';
+import { getNextMostLikelyQuestion } from '../data/mostLikelyQuestions';
+import { getNextConfessionQuestion } from '../data/confessionQuestions';
+import { getNextChallengeTask } from '../data/challengeQuestions';
+import { getNextChallengeMasterCard } from '../data/challengeMasterCards';
+import { getNextCharadesWord } from '../data/charadesWords';
 
-// --- تنظيم بيانات أنواع الألعاب في مصفوفة ---
 const gameTypes = [
   {
     id: 'charades',
     title: 'تمثيل صامت',
     description: 'اعرض الكلمة بدون كلام! من يخمنها يربح نقطة.',
     icon: '🎭',
-    questions: charadesWords,
+    color: COLORS.success,
+    getNext: getNextCharadesWord,
+    screen: 'CharadesScreen',
   },
-  // --- تم حذف لعبة "أنا لم أفعل قط..." من هنا ---
   {
     id: 'general',
     title: 'أسئلة عامة',
     description: 'أسئلة متنوعة لاختبار معلوماتكم.',
     icon: '❓',
-    questions: generalQuestions,
+    color: COLORS.primary,
+    getNext: getNextGeneralQuestion,
+    screen: 'GameScreen',
   },
   {
     id: 'mostLikely',
     title: 'من يفعلها؟',
     description: 'صوّتوا على اللاعبين الذين تنطبق عليهم العبارة!',
     icon: '👉',
-    questions: mostLikelyQuestions,
+    color: COLORS.secondary,
+    getNext: getNextMostLikelyQuestion,
+    screen: 'GameScreen',
   },
   {
     id: 'confession',
     title: 'كرسي الاعتراف',
     description: 'أسئلة جريئة وصريحة لكشف الأسرار.',
     icon: '🤫',
-    questions: confessionQuestions,
+    color: COLORS.fail,
+    getNext: getNextConfessionQuestion,
+    screen: 'GameScreen',
   },
   {
     id: 'challenge',
     title: 'تحديات',
     description: 'نفّذوا تحديات ممتعة ومحرجة.',
     icon: '🔥',
-    questions: challengeTasks,
+    color: COLORS.warning,
+    getNext: getNextChallengeTask,
+    screen: 'GameScreen',
   },
   {
     id: 'challengeMaster',
     title: 'الكل يلعب',
     description: 'تحديات جماعية! الحكم يختار من خالف القواعد.',
     icon: '🎲',
-    questions: challengeMasterCards,
+    color: COLORS.info,
+    getNext: getNextChallengeMasterCard,
+    screen: 'GameScreen',
   },
 ];
 
 const GameTypeScreen = ({ navigation }) => {
   const { players } = usePlayers();
+  const [pressedIdx, setPressedIdx] = React.useState(null);
+  const anim = React.useRef(new Animated.Value(1)).current;
 
   if (!players || players.length === 0) {
     return (
@@ -76,42 +85,66 @@ const GameTypeScreen = ({ navigation }) => {
     );
   }
 
-  const selectGameType = (game) => {
-    if (game.id === 'charades') {
-      navigation.navigate('CharadesScreen', {
-        gameTitle: game.title,
-        words: game.questions,
-      });
-    } else {
-      navigation.navigate('GameScreen', {
-        players: players, 
-        questions: game.questions,
-        gameTitle: game.title,
-        gameCategory: game.id,
-      });
-    }
+  const selectGameType = async (game, idx) => {
+    setPressedIdx(idx);
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 0.97, duration: 100, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 1, duration: 130, useNativeDriver: true }),
+    ]).start(async () => {
+      setPressedIdx(null);
+
+      // جلب السؤال أو العنصر الأول من الدالة المناسبة
+      const firstQuestion = await game.getNext();
+
+      if (!firstQuestion) {
+        // انتهت الأسئلة/التحديات/الكلمات
+        // يمكن عرض رسالة أو إعادة تعيين الدورة تلقائياً حسب دوال البيانات
+        return;
+      }
+
+      if (game.screen === 'CharadesScreen') {
+        navigation.navigate('CharadesScreen', {
+          gameTitle: game.title,
+        });
+      } else {
+        navigation.navigate('GameScreen', {
+          players,
+          firstQuestion,
+          gameTitle: game.title,
+          gameCategory: game.id,
+        });
+      }
+    });
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      {gameTypes.map((game) => (
-        <TouchableOpacity
+      <Text style={styles.title}>اختر نوع اللعبة</Text>
+      {gameTypes.map((game, idx) => (
+        <Animated.View
           key={game.id}
-          style={styles.card}
-          onPress={() => selectGameType(game)}
+          style={[
+            styles.cardWrapper,
+            pressedIdx === idx && { transform: [{ scale: anim }] }
+          ]}
         >
-          <Text style={styles.cardIcon}>{game.icon}</Text>
-          <View style={styles.cardTextContainer}>
-            <Text style={styles.cardTitle}>{game.title}</Text>
-            <Text style={styles.cardDescription}>{game.description}</Text>
-          </View>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.card, { borderColor: game.color }]}
+            onPress={() => selectGameType(game, idx)}
+            activeOpacity={0.90}
+          >
+            <Text style={[styles.cardIcon, { color: game.color }]}>{game.icon}</Text>
+            <View style={styles.cardTextContainer}>
+              <Text style={[styles.cardTitle, { color: game.color }]}>{game.title}</Text>
+              <Text style={styles.cardDescription}>{game.description}</Text>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
       ))}
     </ScrollView>
   );
 };
 
-// ... الأنماط styles تبقى كما هي
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -119,37 +152,54 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SIZES.padding,
+    paddingBottom: SIZES.padding * 2,
+  },
+  title: {
+    ...FONTS.h1,
+    color: COLORS.primary,
+    textAlign: 'center',
+    marginBottom: SIZES.padding * 1.5,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  cardWrapper: {
+    marginBottom: SIZES.padding / 1.2,
   },
   card: {
     backgroundColor: COLORS.surface,
-    borderRadius: SIZES.radius,
-    padding: SIZES.padding / 1.5,
-    marginBottom: SIZES.padding / 1.5,
+    borderRadius: SIZES.radius * 1.5,
+    padding: SIZES.padding,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.13,
+    shadowRadius: 6,
+    elevation: 4,
+    borderWidth: 2,
   },
   cardIcon: {
-    fontSize: SIZES.h1,
+    fontSize: SIZES.h1 + 12,
     marginRight: SIZES.base * 2,
+    textShadowColor: COLORS.text,
+    textShadowRadius: 2,
   },
   cardTextContainer: {
     flex: 1,
   },
   cardTitle: {
-    ...FONTS.h3,
-    color: COLORS.primary,
+    ...FONTS.h2,
     textAlign: 'left',
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   cardDescription: {
     ...FONTS.body,
     color: COLORS.subtleText,
     marginTop: SIZES.base / 2,
     textAlign: 'left',
+    fontSize: SIZES.h3,
+    letterSpacing: 0.5,
   },
   errorContainer: {
     flex: 1,
@@ -160,23 +210,34 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     ...FONTS.h1,
-    color: COLORS.secondary,
+    color: COLORS.fail,
     marginBottom: SIZES.base,
+    fontWeight: 'bold',
   },
   errorMessage: {
     ...FONTS.body,
     color: COLORS.text,
     textAlign: 'center',
     marginBottom: SIZES.padding,
+    fontSize: SIZES.h3,
   },
   errorButton: {
     backgroundColor: COLORS.primary,
     paddingVertical: SIZES.base * 1.5,
     paddingHorizontal: SIZES.padding,
     borderRadius: SIZES.radius,
+    marginTop: SIZES.base,
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.10,
+    shadowRadius: 3,
+    elevation: 2,
   },
   errorButtonText: {
     ...FONTS.button,
+    fontWeight: 'bold',
+    color: COLORS.surface,
+    fontSize: SIZES.h3,
+    letterSpacing: 0.5,
   },
 });
 

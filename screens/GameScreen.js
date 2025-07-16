@@ -1,58 +1,56 @@
-// screens/GameScreen.js
-
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Modal, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Modal, Alert, Animated } from 'react-native';
 import { usePlayers } from '../contexts/PlayersContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useSound } from '../contexts/SoundContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { FONTS, SIZES } from '../constants/theme';
 
+// استيراد دوال جلب الأسئلة غير المتكررة لكل نوع
+import { getNextGeneralQuestion } from '../data/questions';
+import { getNextMostLikelyQuestion } from '../data/mostLikelyQuestions';
+import { getNextConfessionQuestion } from '../data/confessionQuestions';
+import { getNextChallengeTask } from '../data/challengeQuestions';
+import { getNextChallengeMasterCard } from '../data/challengeMasterCards';
+
 const { width, height } = Dimensions.get('window');
 
-const shuffleArray = (array) => {
-  let currentIndex = array.length, randomIndex;
-  while (currentIndex !== 0) {
-    randomIndex = Math.floor(Math.random() * currentIndex);
-    currentIndex--;
-    [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
-  }
-  return array;
-};
-
-// --- (مكونات العرض الفرعية PlayerHeader, QuestionCard, InstructionsModal تبقى كما هي) ---
-const PlayerHeader = ({ gameCategory, currentPlayer, currentJudge, round, onRulePress, styles }) => {
-  return (
-    <View style={styles.headerContainer}>
-      <Text style={styles.roundText}>الجولة {round}</Text>
-      {gameCategory === 'challengeMaster' ? (
-        <View style={styles.judgeHeader}>
-          <TouchableOpacity onPress={onRulePress} style={styles.ruleIcon}>
-            <Text style={{fontSize: SIZES.h2}}>💡</Text>
-          </TouchableOpacity>
-          <Text style={styles.judgeNameText}>
-            الحكم: {currentJudge?.name || '...'}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.playerInfoContainer}>
-          <Text style={styles.playerTurnText}>
-            دور اللاعب: <Text style={styles.currentPlayerName}>{currentPlayer?.name || '...'}</Text>
-            <Text> (نقاط: </Text>
-            <Text style={styles.playerScoreText}>{(currentPlayer?.score || 0)}</Text>
-            <Text>)</Text>
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-};
-const QuestionCard = ({ question, styles }) => (
-  <View style={styles.cardContainer}>
-    <Text style={styles.cardText}>{question?.text || 'جاري تحميل السؤال...'}</Text>
+// مكون الهيدر للاعب أو الحكم
+const PlayerHeader = ({ gameCategory, currentPlayer, currentJudge, round, onRulePress, styles }) => (
+  <View style={styles.headerContainer}>
+    <Text style={styles.roundText}>الجولة {round}</Text>
+    {gameCategory === 'challengeMaster' ? (
+      <View style={styles.judgeHeader}>
+        <TouchableOpacity onPress={onRulePress} style={styles.ruleIcon}>
+          <Text style={{ fontSize: SIZES.h2 }}>💡</Text>
+        </TouchableOpacity>
+        <Text style={styles.judgeNameText}>
+          الحكم: {currentJudge?.name || '...'}
+        </Text>
+      </View>
+    ) : (
+      <View style={styles.playerInfoContainer}>
+        <Text style={styles.playerTurnText}>
+          دور اللاعب: <Text style={styles.currentPlayerName}>{currentPlayer?.name || '...'}</Text>
+          <Text> (نقاط: </Text>
+          <Text style={styles.playerScoreText}>{(currentPlayer?.score || 0)}</Text>
+          <Text>)</Text>
+        </Text>
+      </View>
+    )}
   </View>
 );
+
+const QuestionCard = ({ question, styles, anim }) => (
+  <Animated.View style={[styles.cardContainer, {
+    transform: [
+      { scale: anim ? anim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) : 1 }
+    ]
+  }]}>
+    <Text style={styles.cardText}>{question?.text || 'جاري تحميل السؤال...'}</Text>
+  </Animated.View>
+);
+
 const InstructionsModal = ({ visible, onClose, instructions, styles }) => (
   <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
     <View style={styles.modalContainer}>
@@ -64,118 +62,107 @@ const InstructionsModal = ({ visible, onClose, instructions, styles }) => (
     </View>
   </Modal>
 );
-// --- (نهاية المكونات الفرعية) ---
-
 
 const GameScreen = ({ navigation, route }) => {
-  const { questions, gameTitle, players: initialPlayers, gameCategory } = route.params;
-  
-  const { theme, changeTheme } = useTheme(); 
+  const { players: initialPlayers, gameTitle, gameCategory } = route.params;
+  const { theme, changeTheme } = useTheme();
   const styles = getStyles(theme);
-
   const { updatePlayerScore } = usePlayers();
   const { settings } = useSettings();
   const { playSound } = useSound();
 
+  // دوال جلب السؤال المناسب حسب نوع اللعبة
+  const questionGetters = {
+    general: getNextGeneralQuestion,
+    mostLikely: getNextMostLikelyQuestion,
+    confession: getNextConfessionQuestion,
+    challenge: getNextChallengeTask,
+    challengeMaster: getNextChallengeMasterCard,
+    neverHaveIEver: getNextMostLikelyQuestion, // إذا أضفت نوع "أنا لم أفعل قط"
+  };
+
+  // حالة اللعبة
   const [gameState, setGameState] = useState('loading');
   const [isInstructionsVisible, setInstructionsVisible] = useState(false);
   const [answered, setAnswered] = useState(null);
   const [outcome, setOutcome] = useState(null);
   const [penalizedPlayerIds, setPenalizedPlayerIds] = useState([]);
   const [mostLikelySelectedIds, setMostLikelySelectedIds] = useState([]);
-
   const [players, setPlayers] = useState(() => initialPlayers.map(p => ({ ...p, score: p.score || 0 })));
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [round, setRound] = useState(1);
   const [currentJudgeIndex, setCurrentJudgeIndex] = useState(0);
+  const cardAnim = useRef(new Animated.Value(1)).current;
 
-  const questionPoolRef = useRef([]);
-  const USED_QUESTIONS_KEY = `@used_questions_${gameCategory}`;
-
+  // تغيير الثيم حسب نوع اللعبة
   useEffect(() => {
     changeTheme(gameCategory);
     initializeGame();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameCategory]);
 
-  const markQuestionAsUsed = async (questionId) => {
-    try {
-        const existingUsed = await AsyncStorage.getItem(USED_QUESTIONS_KEY);
-        const usedIds = existingUsed ? JSON.parse(existingUsed) : [];
-        usedIds.push(questionId);
-        await AsyncStorage.setItem(USED_QUESTIONS_KEY, JSON.stringify(usedIds));
-    } catch (e) {
-        console.error("Failed to save used question.", e);
-    }
+  // تحريك البطاقة
+  const animateCard = () => {
+    cardAnim.setValue(0);
+    Animated.spring(cardAnim, {
+      toValue: 1,
+      friction: 4,
+      useNativeDriver: true,
+    }).start();
   };
 
-  const initializeGame = async () => {
-    setGameState('loading');
-    try {
-      const usedQuestionsJson = await AsyncStorage.getItem(USED_QUESTIONS_KEY);
-      const usedQuestionIds = usedQuestionsJson ? JSON.parse(usedQuestionsJson) : [];
-      
-      let availableQuestions = questions.filter(q => !usedQuestionIds.includes(q.id));
-
-      if (availableQuestions.length === 0 && questions.length > 0) {
-        Alert.alert("تهانينا!", `لقد أكملتم كل الأسئلة في لعبة "${gameTitle}". سيتم الآن إعادة تعيين القائمة.`);
-        await AsyncStorage.removeItem(USED_QUESTIONS_KEY);
-        availableQuestions = [...questions];
-      }
-      
-      questionPoolRef.current = shuffleArray(availableQuestions);
-      
-      const firstQuestion = getNextQuestion();
-      if (firstQuestion) {
-        setCurrentQuestion(firstQuestion);
-        markQuestionAsUsed(firstQuestion.id);
-        setGameState('playing');
-        setInstructionsVisible(true);
-      } else {
-        Alert.alert("خطأ", "لا توجد أسئلة متاحة لهذه اللعبة.", [{ text: "العودة", onPress: () => navigation.goBack() }]);
-      }
-    } catch (e) {
-      console.error("Failed to initialize game.", e);
-      questionPoolRef.current = shuffleArray([...questions]);
-      setGameState('playing');
+  // جلب السؤال التالي حسب النوع
+  const getNextQuestion = async () => {
+    const getter = questionGetters[gameCategory];
+    if (getter) {
+      const question = await getter();
+      setCurrentQuestion(question);
+      animateCard();
+      return question;
     }
-  };
-  
-  const getNextQuestion = () => {
-    if (questionPoolRef.current.length > 0) {
-      return questionPoolRef.current.pop();
-    }
-    // إذا انتهت الأسئلة، نعيد تهيئة اللعبة
-    initializeGame();
     return null;
   };
-  
-  const moveToNext = () => {
+
+  // بدء اللعبة
+  const initializeGame = async () => {
+    setGameState('loading');
+    const firstQuestion = await getNextQuestion();
+    if (firstQuestion) {
+      setGameState('playing');
+      setInstructionsVisible(true);
+    } else {
+      Alert.alert("خطأ", "لا توجد أسئلة متاحة لهذه اللعبة.", [{ text: "العودة", onPress: () => navigation.goBack() }]);
+    }
+  };
+
+  // الانتقال للسؤال التالي
+  const moveToNext = async () => {
     setAnswered(null);
     setMostLikelySelectedIds([]);
     setOutcome(null);
     setPenalizedPlayerIds([]);
-    
-    const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
-    
+
+    let nextPlayerIndex = currentPlayerIndex;
+    let nextJudgeIndex = currentJudgeIndex;
+
     if (gameCategory === 'challengeMaster') {
-        const nextJudgeIndex = (currentJudgeIndex + 1) % players.length;
-        setCurrentJudgeIndex(nextJudgeIndex);
-        if (nextJudgeIndex === 0) setRound(prev => prev + 1);
+      nextJudgeIndex = (currentJudgeIndex + 1) % players.length;
+      setCurrentJudgeIndex(nextJudgeIndex);
+      if (nextJudgeIndex === 0) setRound(prev => prev + 1);
     } else {
+      nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
       setCurrentPlayerIndex(nextPlayerIndex);
       if (nextPlayerIndex === 0) setRound(prev => prev + 1);
     }
 
-    const newCard = getNextQuestion();
-    if (newCard) {
-      setCurrentQuestion(newCard);
-      markQuestionAsUsed(newCard.id);
-    } else {
-      // سيتم التعامل مع نهاية الأسئلة داخل getNextQuestion
+    const newQuestion = await getNextQuestion();
+    if (newQuestion) {
+      setCurrentQuestion(newQuestion);
     }
   };
 
+  // إنهاء اللعبة
   const endGame = () => {
     changeTheme('default');
     navigation.replace('Result', { players, gameCategory });
@@ -185,41 +172,45 @@ const GameScreen = ({ navigation, route }) => {
     if (round > settings.numberOfRounds) {
       endGame();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [round, settings.numberOfRounds]);
-  
+
+  // تحديث الدرجات
   const handleScoreUpdate = (playerIds, points) => {
     const idsToUpdate = Array.isArray(playerIds) ? playerIds : [playerIds];
     setPlayers(currentPlayers => {
-        const newPlayers = currentPlayers.map(player => {
-            if (idsToUpdate.includes(player.id)) {
-                const updatedScore = player.score + points;
-                updatePlayerScore(player.id, updatedScore);
-                return { ...player, score: updatedScore };
-            }
-            return player;
-        });
-        return newPlayers;
+      const newPlayers = currentPlayers.map(player => {
+        if (idsToUpdate.includes(player.id)) {
+          const updatedScore = player.score + points;
+          updatePlayerScore(player.id, updatedScore);
+          return { ...player, score: updatedScore };
+        }
+        return player;
+      });
+      return newPlayers;
     });
   };
-  
-  // --- (دوال التعامل مع الإجابات تبقى كما هي) ---
+
   const handleGeneralAnswer = (selectedOption) => {
     const isCorrect = selectedOption === currentQuestion.correctAnswer;
     playSound(isCorrect ? 'correct' : 'wrong');
-    handleScoreUpdate(currentPlayer.id, isCorrect ? 1 : -1);
+    handleScoreUpdate(players[currentPlayerIndex].id, isCorrect ? 1 : -1);
     setAnswered({ selected: selectedOption, correct: currentQuestion.correctAnswer });
-    setTimeout(moveToNext, 1500);
+    setTimeout(moveToNext, 1200);
   };
+
   const handleConfessionChallengeOutcome = (success) => {
     playSound(success ? 'correct' : 'wrong');
-    handleScoreUpdate(currentPlayer.id, success ? 1 : -1);
+    handleScoreUpdate(players[currentPlayerIndex].id, success ? 1 : -1);
     setOutcome(success ? 'success' : 'fail');
-    setTimeout(moveToNext, 1500);
+    setTimeout(moveToNext, 1000);
   };
+
   const handleTogglePenalty = (playerId) => {
     playSound('click');
     setPenalizedPlayerIds(prev => prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]);
   };
+
   const confirmPenalties = () => {
     if (penalizedPlayerIds.length === 0) {
       Alert.alert("تنبيه", "الرجاء اختيار اللاعبين المخالفين أولاً، أو اضغط 'لا يوجد مخالفون'.");
@@ -227,58 +218,68 @@ const GameScreen = ({ navigation, route }) => {
     }
     playSound('wrong');
     handleScoreUpdate(penalizedPlayerIds, -1);
-    setTimeout(moveToNext, 1500);
+    setTimeout(moveToNext, 900);
   };
+
   const handleMostLikelyToggle = (playerId) => {
     playSound('click');
     setMostLikelySelectedIds(prev => prev.includes(playerId) ? prev.filter(id => id !== playerId) : [...prev, playerId]);
   };
+
   const confirmMostLikely = () => {
     if (mostLikelySelectedIds.length > 0) {
       playSound('wrong');
       handleScoreUpdate(mostLikelySelectedIds, -1);
     }
-    setTimeout(moveToNext, 1000);
+    setTimeout(moveToNext, 900);
   };
-   const confirmNeverHaveIEver = () => {
+
+  const confirmNeverHaveIEver = () => {
     if (mostLikelySelectedIds.length > 0) {
       playSound('wrong');
       handleScoreUpdate(mostLikelySelectedIds, -1);
     }
-    setTimeout(moveToNext, 1000);
+    setTimeout(moveToNext, 900);
   };
+
   const showCurrentRule = () => {
-    if(currentQuestion?.text) Alert.alert("القاعدة الحالية", currentQuestion.text);
+    if (currentQuestion?.text) Alert.alert("القاعدة الحالية", currentQuestion.text);
   };
-  // --- (نهاية دوال الإجابات) ---
 
   const currentPlayer = players[currentPlayerIndex];
   const currentJudge = players[currentJudgeIndex];
 
+  // واجهة الأزرار والخيارات حسب نوع اللعبة
   const renderActions = () => {
-    // --- إضافة حالة جديدة للعبة "أنا لم أفعل قط" ---
     switch (gameCategory) {
       case 'neverHaveIEver':
         return (
           <View style={styles.actionsContainer}>
             <Text style={styles.instructionText}>كل من فعل هذا الشيء، يضغط على اسمه (تُخصم نقطة):</Text>
-            <ScrollView>{players.map(player => { 
-                const isSelected = mostLikelySelectedIds.includes(player.id); 
-                return( 
-                    <TouchableOpacity 
-                        key={player.id} 
-                        style={[styles.playerVoteButton, isSelected && styles.playerVoteButtonSelected]} 
-                        onPress={() => handleMostLikelyToggle(player.id)}>
-                        <Text style={[styles.playerVoteButtonText, isSelected && styles.buttonTextDark]}>{player.name}</Text>
-                    </TouchableOpacity> 
-                ); 
-            })}</ScrollView>
-             <TouchableOpacity style={[styles.actionButton, styles.successButton, {marginTop: 10}]} onPress={confirmNeverHaveIEver}>
-                <Text style={styles.actionButtonText}>تأكيد والانتقال للسؤال التالي</Text>
+            <ScrollView>
+              {players.map(player => {
+                const isSelected = mostLikelySelectedIds.includes(player.id);
+                return (
+                  <TouchableOpacity
+                    key={player.id}
+                    style={[styles.playerVoteButton, isSelected && styles.playerVoteButtonSelected]}
+                    onPress={() => handleMostLikelyToggle(player.id)}
+                  >
+                    <Text style={[styles.playerVoteButtonText, isSelected && styles.buttonTextDark]}>
+                      {player.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.successButton, { marginTop: 10 }]}
+              onPress={confirmNeverHaveIEver}
+            >
+              <Text style={styles.actionButtonText}>تأكيد والانتقال للسؤال التالي</Text>
             </TouchableOpacity>
           </View>
         );
-      // ... (بقية الحالات كما هي)
       case 'general':
         return (
           <View style={styles.actionsContainer}>
@@ -287,10 +288,19 @@ const GameScreen = ({ navigation, route }) => {
               const isWrong = answered && option === answered.selected && !isCorrect;
               let buttonStyle = [styles.optionButton];
               let textStyle = [styles.optionButtonText];
-              if (isCorrect) { buttonStyle.push(styles.correctOption); textStyle.push(styles.buttonTextDark); } 
-              else if (isWrong) { buttonStyle.push(styles.wrongOption); textStyle.push(styles.buttonText); } 
+              if (isCorrect) { buttonStyle.push(styles.correctOption); textStyle.push(styles.buttonTextDark); }
+              else if (isWrong) { buttonStyle.push(styles.wrongOption); textStyle.push(styles.buttonText); }
               else if (answered) { buttonStyle.push(styles.disabledOption); }
-              return ( <TouchableOpacity key={option} style={buttonStyle} onPress={() => handleGeneralAnswer(option)} disabled={!!answered}><Text style={textStyle}>{option}</Text></TouchableOpacity> );
+              return (
+                <TouchableOpacity
+                  key={option}
+                  style={buttonStyle}
+                  onPress={() => handleGeneralAnswer(option)}
+                  disabled={!!answered}
+                >
+                  <Text style={textStyle}>{option}</Text>
+                </TouchableOpacity>
+              );
             })}
           </View>
         );
@@ -298,29 +308,50 @@ const GameScreen = ({ navigation, route }) => {
         return (
           <View style={styles.actionsContainer}>
             <Text style={styles.instructionText}>اختر كل اللاعبين الذين تنطبق عليهم العبارة:</Text>
-            <ScrollView>{players.map(player => { 
-                const isSelected = mostLikelySelectedIds.includes(player.id); 
-                return( 
-                    <TouchableOpacity 
-                        key={player.id} 
-                        style={[styles.playerVoteButton, isSelected && styles.playerVoteButtonSelected]} 
-                        onPress={() => handleMostLikelyToggle(player.id)}>
-                        <Text style={[styles.playerVoteButtonText, isSelected && styles.buttonTextDark]}>{player.name}</Text>
-                    </TouchableOpacity> 
-                ); 
-            })}</ScrollView>
-             <TouchableOpacity style={[styles.actionButton, styles.successButton, {marginTop: 10}]} onPress={confirmMostLikely}>
-                <Text style={styles.actionButtonText}>تأكيد والانتقال للسؤال التالي</Text>
+            <ScrollView>
+              {players.map(player => {
+                const isSelected = mostLikelySelectedIds.includes(player.id);
+                return (
+                  <TouchableOpacity
+                    key={player.id}
+                    style={[styles.playerVoteButton, isSelected && styles.playerVoteButtonSelected]}
+                    onPress={() => handleMostLikelyToggle(player.id)}
+                  >
+                    <Text style={[styles.playerVoteButtonText, isSelected && styles.buttonTextDark]}>
+                      {player.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.successButton, { marginTop: 10 }]}
+              onPress={confirmMostLikely}
+            >
+              <Text style={styles.actionButtonText}>تأكيد والانتقال للسؤال التالي</Text>
             </TouchableOpacity>
           </View>
         );
       case 'confession':
       case 'challenge':
-        const handleSuccessPress = () => { playSound('click'); handleConfessionChallengeOutcome(true); }; const handleFailPress = () => { playSound('click'); handleConfessionChallengeOutcome(false); };
+        const handleSuccessPress = () => { playSound('click'); handleConfessionChallengeOutcome(true); };
+        const handleFailPress = () => { playSound('click'); handleConfessionChallengeOutcome(false); };
         return (
           <View style={styles.actionsContainer}>
-            <TouchableOpacity style={[styles.actionButton, styles.successButton, (outcome === 'fail' && styles.disabledOption)]} onPress={handleSuccessPress} disabled={!!outcome}><Text style={styles.actionButtonText}>نجح / اعترف</Text></TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, styles.failButton, (outcome === 'success' && styles.disabledOption)]} onPress={handleFailPress} disabled={!!outcome}><Text style={styles.actionButtonText}>فشل / رفض</Text></TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.successButton, (outcome === 'fail' && styles.disabledOption)]}
+              onPress={handleSuccessPress}
+              disabled={!!outcome}
+            >
+              <Text style={styles.actionButtonText}>نجح / اعترف</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.failButton, (outcome === 'success' && styles.disabledOption)]}
+              onPress={handleFailPress}
+              disabled={!!outcome}
+            >
+              <Text style={styles.actionButtonText}>فشل / رفض</Text>
+            </TouchableOpacity>
           </View>
         );
       case 'challengeMaster':
@@ -334,31 +365,39 @@ const GameScreen = ({ navigation, route }) => {
                 return (
                   <TouchableOpacity
                     key={player.id}
-                    style={[ styles.playerGridItem, isPenalized && styles.playerGridItemSelected, isDisabled && styles.disabledOption ]}
+                    style={[
+                      styles.playerGridItem,
+                      isPenalized && styles.playerGridItemSelected,
+                      isDisabled && styles.disabledOption,
+                    ]}
                     onPress={() => !isDisabled && handleTogglePenalty(player.id)}
                     disabled={isDisabled}
                   >
-                    <Text style={[ styles.playerGridItemText, isPenalized && styles.buttonTextDark, isDisabled && { color: theme.subtleText } ]}>
+                    <Text style={[
+                      styles.playerGridItemText,
+                      isPenalized && styles.buttonTextDark,
+                      isDisabled && { color: theme.subtleText }
+                    ]}>
                       {player.name}
                     </Text>
                   </TouchableOpacity>
-                )
+                );
               })}
             </View>
             <View style={styles.bottomActionsContainer}>
-                <TouchableOpacity
-                    style={[styles.halfWidthButton, { backgroundColor: theme.fail }, penalizedPlayerIds.length === 0 && styles.disabledOption]}
-                    onPress={confirmPenalties}
-                    disabled={penalizedPlayerIds.length === 0}
-                >
-                    <Text style={styles.halfWidthButtonText}>تأكيد العقوبات</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.halfWidthButton, {backgroundColor: theme.primary}]}
-                    onPress={() => { playSound('click'); moveToNext(); }}
-                >
-                    <Text style={styles.halfWidthButtonText}>لا يوجد مخالفون</Text>
-                </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.halfWidthButton, { backgroundColor: theme.fail }, penalizedPlayerIds.length === 0 && styles.disabledOption]}
+                onPress={confirmPenalties}
+                disabled={penalizedPlayerIds.length === 0}
+              >
+                <Text style={styles.halfWidthButtonText}>تأكيد العقوبات</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.halfWidthButton, { backgroundColor: theme.primary }]}
+                onPress={() => { playSound('click'); moveToNext(); }}
+              >
+                <Text style={styles.halfWidthButtonText}>لا يوجد مخالفون</Text>
+              </TouchableOpacity>
             </View>
           </View>
         );
@@ -366,45 +405,68 @@ const GameScreen = ({ navigation, route }) => {
     }
   };
 
+  // شرح اللعبة حسب النوع
   const getInstructions = () => {
     let title = `شرح لعبة: ${gameTitle}`;
     let message = "";
     const judgeName = players[currentJudgeIndex]?.name || 'غير محدد';
-    
+
     switch (gameCategory) {
-      case 'neverHaveIEver': message = "تظهر عبارة تبدأ بـ 'أنا لم أفعل قط...'. كل لاعب قام بالفعل المذكور، يجب أن يضغط على اسمه. كل لاعب يتم اختياره تُخصم منه نقطة. الخاسر في النهاية هو صاحب أقل مجموع نقاط."; break;
-      case 'general': message = "اللاعب الذي عليه الدور يجيب على سؤال من خيارات. الإجابة الصحيحة تكسب نقطة، والخاطئة تخصم نقطة."; break;
-      case 'mostLikely': message = "تظهر عبارة على الشاشة. يقوم اللاعبون بالتصويت واختيار كل من تنطبق عليه العبارة. كل لاعب يتم اختياره تُخصم منه نقطة."; break;
-      case 'confession': message = "اللاعب الذي عليه الدور يواجه سؤال اعتراف. إذا كان اعترافه صريحاً ووافق عليه اللاعبون، يحصل على نقطة. إذا رفض، تُخصم منه نقطة."; break;
-      case 'challenge': message = "اللاعب الذي عليه الدور يواجه تحدياً. إذا نفذ التحدي بنجاح، يحصل على نقطة. إذا فشل، تُخصم منه نقطة."; break;
+      case 'neverHaveIEver':
+        message = "تظهر عبارة تبدأ بـ 'أنا لم أفعل قط...'. كل لاعب قام بالفعل المذكور، يجب أن يضغط على اسمه. كل لاعب يتم اختياره تُخصم منه نقطة. الخاسر في النهاية هو صاحب أقل مجموع نقاط.";
+        break;
+      case 'general':
+        message = "اللاعب الذي عليه الدور يجيب على سؤال من خيارات. الإجابة الصحيحة تكسب نقطة، والخاطئة تخصم نقطة.";
+        break;
+      case 'mostLikely':
+        message = "تظهر عبارة على الشاشة. يقوم اللاعبون بالتصويت واختيار كل من تنطبق عليه العبارة. كل لاعب يتم اختياره تُخصم منه نقطة.";
+        break;
+      case 'confession':
+        message = "اللاعب الذي عليه الدور يواجه سؤال اعتراف. إذا كان اعترافه صريحاً ووافق عليه اللاعبون، يحصل على نقطة. إذا رفض، تُخصم منه نقطة.";
+        break;
+      case 'challenge':
+        message = "اللاعب الذي عليه الدور يواجه تحدياً. إذا نفذ التحدي بنجاح، يحصل على نقطة. إذا فشل، تُخصم منه نقطة.";
+        break;
       case 'challengeMaster':
         message = `مرحباً بك في لعبة "الكل يلعب"! الحكم الحالي هو: ${judgeName}.\n\n` +
           "1. تظهر بطاقة في كل جولة تحتوي على قانون جديد ينطبق على **جميع اللاعبين**.\n" +
           "2. **الحكم** يراقب الجميع. إذا خالف أي لاعب القاعدة، يقوم الحكم باختياره لخصم نقطة منه.\n" +
           "3. دور 'الحكم' ينتقل إلى اللاعب التالي في كل جولة.";
         break;
-      default: message = "لا يوجد شرح لهذا النوع من الألعاب.";
+      default:
+        message = "لا يوجد شرح لهذا النوع من الألعاب.";
     }
     return { title, message };
   };
 
   if (gameState === 'loading') {
     return (
-        <View style={styles.container}><Text style={styles.cardText}>جاري تحضير اللعبة...</Text></View>
+      <View style={styles.container}><Text style={styles.cardText}>جاري تحضير اللعبة...</Text></View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <PlayerHeader gameCategory={gameCategory} currentPlayer={currentPlayer} currentJudge={currentJudge} round={round} onRulePress={showCurrentRule} styles={styles} />
-      {currentQuestion && <QuestionCard question={currentQuestion} styles={styles} />}
+      <PlayerHeader
+        gameCategory={gameCategory}
+        currentPlayer={currentPlayer}
+        currentJudge={currentJudge}
+        round={round}
+        onRulePress={showCurrentRule}
+        styles={styles}
+      />
+      {currentQuestion && <QuestionCard question={currentQuestion} styles={styles} anim={cardAnim} />}
       {renderActions()}
-      <InstructionsModal visible={isInstructionsVisible} onClose={() => setInstructionsVisible(false)} instructions={getInstructions()} styles={styles} />
+      <InstructionsModal
+        visible={isInstructionsVisible}
+        onClose={() => setInstructionsVisible(false)}
+        instructions={getInstructions()}
+        styles={styles}
+      />
     </View>
   );
 };
 
-// --- (الأنماط getStyles تبقى كما هي) ---
 const getStyles = (COLORS) => StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background, padding: SIZES.padding, justifyContent: 'space-between' },
   headerContainer: { alignItems: 'center' },
@@ -480,7 +542,7 @@ const getStyles = (COLORS) => StyleSheet.create({
   },
   instructionText: { ...FONTS.body, color: COLORS.subtleText, textAlign: 'center', marginBottom: SIZES.base },
   modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)' },
-  modalContent: { width: '90%', maxHeight: '80%', backgroundColor: COLORS.surface, borderRadius: SIZES.radius, padding: SIZES.padding, borderColor: COLORS.primary, borderWidth: 1},
+  modalContent: { width: '90%', maxHeight: '80%', backgroundColor: COLORS.surface, borderRadius: SIZES.radius, padding: SIZES.padding, borderColor: COLORS.primary, borderWidth: 1 },
   modalTitle: { ...FONTS.h2, color: COLORS.primary, marginBottom: SIZES.base, textAlign: 'center' },
   modalMessage: { ...FONTS.body, color: COLORS.text, marginVertical: SIZES.padding / 2, lineHeight: SIZES.body * 1.6 },
   modalCloseButton: { backgroundColor: COLORS.primary, padding: SIZES.padding / 1.5, borderRadius: SIZES.radius, marginTop: SIZES.padding, alignItems: 'center' },

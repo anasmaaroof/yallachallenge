@@ -1,8 +1,9 @@
 import { registerRootComponent } from 'expo';
+import 'expo-dev-client'; // دعم Expo Dev Client لو أردت البناء المحلي والتطوير السريع
 
 import App from './App';
 
-// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
-// It also ensures that whether you load the app in Expo Go or in a native build,
-// the environment is set up appropriately
+// يمكنك إضافة أحداث بدء التطبيق أو تسجيل أي خدمة هنا مستقبلاً
+
+// هذا يضمن أن التطبيق يعمل بشكل صحيح سواء في Expo Go أو البناء المحلي
 registerRootComponent(App);

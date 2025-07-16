@@ -1,4 +1,3 @@
-// data/charadesWords.js
 // قائمة موسعة تحتوي على 200 كلمة وجملة للعبة تمثيل صامت
 
 export const charadesWords = [
@@ -43,3 +42,64 @@ export const charadesWords = [
   "مصارع سومو", "راقصة باليه", "متزلج فني", "لاعب هوكي الجليد", "عداء ماراثون",
   "برج بيزا المائل", "الكولوسيوم", "تاج محل", "ماتشو بيتشو", "البتراء"
 ];
+
+// --- دعم التقدم المتسلسل وعدم التكرار حتى انتهاء جميع الكلمات ---
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const PROGRESS_INDEX_KEY = 'progress_charades_words';
+
+/**
+ * جلب المؤشر الحالي للتقدم المتسلسل
+ */
+export async function getCharadesWordsProgressIndex() {
+  try {
+    const value = await AsyncStorage.getItem(PROGRESS_INDEX_KEY);
+    return value !== null ? parseInt(value, 10) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * حفظ المؤشر الحالي
+ */
+export async function setCharadesWordsProgressIndex(index) {
+  try {
+    await AsyncStorage.setItem(PROGRESS_INDEX_KEY, index.toString());
+  } catch (e) {}
+}
+
+/**
+ * إعادة المؤشر للبداية
+ */
+export async function resetCharadesWordsProgressIndex() {
+  try {
+    await AsyncStorage.setItem(PROGRESS_INDEX_KEY, '0');
+  } catch (e) {}
+}
+
+/**
+ * جلب الكلمة أو العبارة التالية في التسلسل مع حفظ التقدم وعدم التكرار حتى انتهاء جميع الكلمات.
+ * إذا انتهت الكلمات، تبدأ من جديد (دورة جديدة).
+ * استخدم هذه الدالة في شاشة اللعبة لجلب الكلمة التالية باستمرار.
+ */
+export async function getNextCharadesWord() {
+  let currentIndex = await getCharadesWordsProgressIndex();
+  if (currentIndex >= charadesWords.length) {
+    // انتهت جميع الكلمات، أعد للبداية
+    await resetCharadesWordsProgressIndex();
+    currentIndex = 0;
+  }
+  const word = charadesWords[currentIndex];
+  await setCharadesWordsProgressIndex(currentIndex + 1);
+  return word;
+}
+
+/**
+ * ملاحظة هامة:
+ * - هذه الطريقة تضمن أن كل كلمة تظهر مرة واحدة فقط في الجولة، وبالتسلسل، ولا تتكرر حتى تنتهي كل الكلمات.
+ * - عند إغلاق التطبيق والعودة لاحقًا، تبدأ من حيث توقفت.
+ * - عند الانتهاء من جميع الكلمات، تبدأ دورة جديدة من البداية.
+ * - يمكن تطبيق نفس النظام على الأسئلة والعقوبات بأن يكون لكل نوع مفتاح خاص به في التخزين.
+ */
